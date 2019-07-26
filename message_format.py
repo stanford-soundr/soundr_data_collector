@@ -24,14 +24,19 @@ class DecodedPacket:
     @staticmethod
     def from_str(message_str: str):
         json_message = json.loads(message_str)
-        message_type = MessageType(json_message["MessageType"])
+        message_type = MessageType[json_message["MessageType"]]
         content = json.loads(json_message["Content"])
         return DecodedPacket(message_type, content)
 
     def message_str(self):
         content_str = json.dumps(self.content)
         dict_message = {"MessageType": self.message_type.name, "Content": content_str}
-        return json.dumps(dict_message)
+        message_bytes = json.dumps(dict_message).encode('utf-8')
+        print(message_bytes)
+        return message_bytes
+
+    def __str__(self):
+        return str(self.message_str())
 
 
 def parameter_message(user_id: int, trial_id: int):

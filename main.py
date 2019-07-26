@@ -15,9 +15,10 @@ listening: bool = True
 
 # noinspection PyUnusedLocal
 def signal_handler(signal_num: int, frame):
+    global current_state
     if signal_num == signal.SIGINT:
         print("You pressed Ctrl+C!")
-        # TODO: change state
+        current_state = CollectorState.STOP
 
 
 signal.signal(signal.SIGINT, signal_handler)
@@ -59,19 +60,23 @@ class CollectorState(Enum):
 current_state = CollectorState.START
 
 while True:
+    print(current_state)
     if current_state == CollectorState.START:
-        s.send(parameter_message(user_id, trial_id))
+        s.send(parameter_message(user_id, trial_id).message_str())
         current_state = CollectorState.START_ACK
     elif current_state == CollectorState.STOP:
-        s.send(stop_message())
+        s.send(stop_message().message_str())
         current_state = CollectorState.STOP_ACK
     else:
         current_packet = find_next_packet()
+        # print(current_packet.message_type)
         if current_state == CollectorState.START_ACK:
             if current_packet.message_type != MessageType.ACKNOWLEDGE:
                 print("Error: Cannot start recording!")
                 print(current_packet)
                 break
+            else:
+                current_state = CollectorState.COLLECT
         else:
             if current_packet.message_type == MessageType.ERROR:
                 print(current_packet)
