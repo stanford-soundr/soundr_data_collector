@@ -1,15 +1,19 @@
 # %%
+import os
 import socket
 from enum import Enum
 
 import numpy as np
 import signal
+import sounddevice as sd
 import sys
+import datetime
 from message_format import MessageType, DecodedPacket, parameter_message, stop_message
 
 TERMINATOR = b'}"}'
 audio_data = []
 tracker_data = [[], [], [], [], [], [], [], []]
+mic_data = None
 listening: bool = True
 
 
@@ -39,6 +43,15 @@ def find_next_packet():
     return DecodedPacket.from_str(current_packet)
 
 
+def mic_handler(in_data, *_):
+    global mic_data
+    # in_data *= (10 ** 1.45) * (2 ** 31)
+    if mic_data is None:
+        mic_data = in_data
+    else:
+        mic_data = np.concatenate((mic_data, in_data), axis=0)
+
+
 if len(sys.argv) != 3:
     print("Usage: [data_collector.py] user_id trial_id")
 
@@ -58,12 +71,35 @@ class CollectorState(Enum):
 
 
 current_state = CollectorState.START
+mic_stream = None
+
+devices = sd.query_devices()
+mic_id = 0
+for device in range(len(devices)):
+    if devices[device]['name'].startswith('miniDSP VocalFusion Spk (UAC2.0'):
+        mic_id = device
+
+data_directory = './data'
+start = datetime.datetime.now()
+experiment_subdirectory = start.strftime("%Y%m%dT%H%M%S")
+
+experiment_directory = os.path.join(data_directory, experiment_subdirectory)
+
+if not os.path.exists(experiment_directory):
+    os.makedirs(experiment_directory)
+
+VR_AUDIO_FILE_NAME = "vr_audio_data.npy"
+MICROPHONE_FILE_NAME = "mic_data.npy"
+VR_TRACKING_FILE_NAME = "vr_tracking_data.npy"
 
 while True:
     print(current_state)
     if current_state == CollectorState.START:
         s.send(parameter_message(user_id, trial_id).message_str())
         current_state = CollectorState.START_ACK
+        mic_stream = sd.InputStream(samplerate=48000, channels=devices[mic_id]['max_input_channels'], device=mic_id,
+                                    callback=mic_handler)
+        mic_stream.start()
     elif current_state == CollectorState.STOP:
         s.send(stop_message().message_str())
         current_state = CollectorState.STOP_ACK
@@ -83,8 +119,10 @@ while True:
             elif current_packet.message_type == MessageType.ACKNOWLEDGE:
                 if current_state == MessageType.STOP_ACK:
                     s.close()
-                    # TODO: close audio stream
-                    # TODO: save files
+                    mic_stream.close()
+                    np.save(os.path.join(experiment_directory, VR_AUDIO_FILE_NAME), np.array(audio_data))
+                    np.save(os.path.join(experiment_directory, MICROPHONE_FILE_NAME), np.array(mic_data))
+                    np.save(os.path.join(experiment_directory, VR_TRACKING_FILE_NAME), np.array(tracker_data).T)
                     print("Data collection ended!")
                     sys.exit(0)
                 else:
