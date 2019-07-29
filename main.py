@@ -32,7 +32,7 @@ buffer_packet_bytes = b''
 
 def find_next_packet():
     global buffer_packet_bytes
-    packet_end = -1  # terminator not found
+    packet_end = buffer_packet_bytes.find(TERMINATOR)  # terminator not found
     while packet_end < 0:
         buffer_packet_bytes += s.recvfrom(65565)[0]
         packet_end = buffer_packet_bytes.find(TERMINATOR)
@@ -55,8 +55,10 @@ def mic_handler(in_data, *_):
 if len(sys.argv) != 3:
     print("Usage: [data_collector.py] user_id trial_id")
 
-user_id = int(sys.argv[1])
-trial_id = int(sys.argv[2])
+user_id = 0
+trial_id = 0
+# user_id = int(sys.argv[1])
+# trial_id = int(sys.argv[2])
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect(("192.168.144.107", 38823))
@@ -105,7 +107,7 @@ while True:
         current_state = CollectorState.STOP_ACK
     else:
         current_packet = find_next_packet()
-        # print(current_packet.message_type)
+        print(current_packet.message_type)
         if current_state == CollectorState.START_ACK:
             if current_packet.message_type != MessageType.ACKNOWLEDGE:
                 print("Error: Cannot start recording!")
@@ -117,7 +119,7 @@ while True:
             if current_packet.message_type == MessageType.ERROR:
                 print(current_packet)
             elif current_packet.message_type == MessageType.ACKNOWLEDGE:
-                if current_state == MessageType.STOP_ACK:
+                if current_state == CollectorState.STOP_ACK:
                     s.close()
                     mic_stream.close()
                     np.save(os.path.join(experiment_directory, VR_AUDIO_FILE_NAME), np.array(audio_data))
