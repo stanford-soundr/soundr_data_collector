@@ -45,6 +45,12 @@ def find_next_packet():
 
 def mic_handler(in_data, *_):
     global mic_data
+    new_timestamp = datetime.datetime.utcnow() - datetime.datetime(1970, 1, 1, 0, 0, 0, 0)
+    if prev_timestamp[1] is not None:
+        samples = (new_timestamp - prev_timestamp[1]) * AUDIO_RATE
+        total_expected_samples[1] += samples
+        total_samples[1] += len(in_data)
+    prev_timestamp[1] = new_timestamp
     # in_data *= (10 ** 1.45) * (2 ** 31)
     if mic_data is None:
         mic_data = in_data
@@ -53,12 +59,21 @@ def mic_handler(in_data, *_):
 
 
 def check_audio_latency():
-    global total_expected_frames, total_frames
-    if prev_timestamp is not None:
-        frames = (current_packet.content['Timestamp'] - prev_timestamp) * AUDIO_RATE
-        total_expected_frames += frames
-        total_frames += len(current_packet.content['DataAudio'])
-        print(frames - len(current_packet.content['DataAudio']))
+    global total_expected_samples, total_samples
+    if prev_timestamp[0] is not None:
+        samples = (current_packet.content['Timestamp'] - prev_timestamp[0]) * TRACKING_RATE
+        total_expected_samples[0] += samples
+        total_samples[0] += len(current_packet.content['DataAudio'])
+        print(samples - len(current_packet.content['DataAudio']))
+
+
+def check_tracking_latency():
+    global total_expected_samples, total_samples
+    if prev_timestamp[2] is not None:
+        samples = (current_packet.content['Timestamp'] - prev_timestamp[2]) * AUDIO_RATE
+        total_expected_samples[2] += samples
+        total_samples[2] += len(current_packet.content['DataPositions'])
+        print(samples - len(current_packet.content['DataPositions']))
 
 
 if len(sys.argv) != 3:
@@ -99,6 +114,7 @@ if not os.path.exists(experiment_directory):
     os.makedirs(experiment_directory)
 
 AUDIO_RATE = 48000
+TRACKING_RATE = 72
 VR_AUDIO_FILE_NAME = "vr_audio_data.npy"
 MICROPHONE_FILE_NAME = "mic_data.npy"
 VR_TRACKING_FILE_NAME = "vr_tracking_data.npy"
@@ -136,7 +152,6 @@ while True:
                 if current_state == CollectorState.STOP_ACK:
                     s.close()
                     mic_stream.close()
-                    print(total_expected_frames - total_frames)
                     np.save(os.path.join(experiment_directory, VR_AUDIO_FILE_NAME), np.array(audio_data))
                     np.save(os.path.join(experiment_directory, MICROPHONE_FILE_NAME), np.array(mic_data))
                     np.save(os.path.join(experiment_directory, VR_TRACKING_FILE_NAME), np.array(tracker_data).T)
@@ -149,6 +164,8 @@ while True:
                 prev_timestamp[0] = current_packet.content['Timestamp']
                 audio_data = np.concatenate([audio_data, current_packet.content["DataAudio"]], axis=0)
             elif current_packet.message_type == MessageType.TRACKING_DATA:
+                check_tracking_latency()
+                prev_timestamp[2] = current_packet.content['Timestamp']
                 tracker_data[0] = np.concatenate([tracker_data[0], current_packet.content["DataTimeStamps"]], axis=0)
                 for sample in current_packet.content['DataPositions']:
                     tracker_data[1].append(sample['x'])
