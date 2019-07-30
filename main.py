@@ -52,13 +52,21 @@ def mic_handler(in_data, *_):
         mic_data = np.concatenate((mic_data, in_data), axis=0)
 
 
+def check_audio_latency():
+    global total_expected_frames, total_frames
+    if prev_timestamp is not None:
+        frames = (current_packet.content['Timestamp'] - prev_timestamp) * AUDIO_RATE
+        total_expected_frames += frames
+        total_frames += len(current_packet.content['DataAudio'])
+        print(frames - len(current_packet.content['DataAudio']))
+
+
 if len(sys.argv) != 3:
     print("Usage: [data_collector.py] user_id trial_id")
+    sys.exit(0)
 
-user_id = 0
-trial_id = 0
-# user_id = int(sys.argv[1])
-# trial_id = int(sys.argv[2])
+user_id = int(sys.argv[1])
+trial_id = int(sys.argv[2])
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.connect(("192.168.144.107", 38823))
@@ -90,17 +98,23 @@ experiment_directory = os.path.join(data_directory, experiment_subdirectory)
 if not os.path.exists(experiment_directory):
     os.makedirs(experiment_directory)
 
+AUDIO_RATE = 48000
 VR_AUDIO_FILE_NAME = "vr_audio_data.npy"
 MICROPHONE_FILE_NAME = "mic_data.npy"
 VR_TRACKING_FILE_NAME = "vr_tracking_data.npy"
+
+mic_stream = sd.InputStream(samplerate=48000, channels=devices[mic_id]['max_input_channels'], device=mic_id,
+                            callback=mic_handler)
+
+prev_timestamp = [None, None, None]
+total_samples = [0, 0, 0]
+total_expected_samples = [0, 0, 0]
 
 while True:
     print(current_state)
     if current_state == CollectorState.START:
         s.send(parameter_message(user_id, trial_id).message_str())
         current_state = CollectorState.START_ACK
-        mic_stream = sd.InputStream(samplerate=48000, channels=devices[mic_id]['max_input_channels'], device=mic_id,
-                                    callback=mic_handler)
         mic_stream.start()
     elif current_state == CollectorState.STOP:
         s.send(stop_message().message_str())
@@ -122,6 +136,7 @@ while True:
                 if current_state == CollectorState.STOP_ACK:
                     s.close()
                     mic_stream.close()
+                    print(total_expected_frames - total_frames)
                     np.save(os.path.join(experiment_directory, VR_AUDIO_FILE_NAME), np.array(audio_data))
                     np.save(os.path.join(experiment_directory, MICROPHONE_FILE_NAME), np.array(mic_data))
                     np.save(os.path.join(experiment_directory, VR_TRACKING_FILE_NAME), np.array(tracker_data).T)
@@ -130,6 +145,8 @@ while True:
                 else:
                     print(f"Warning: Unexpected ACK received! ({current_state})")
             elif current_packet.message_type == MessageType.AUDIO_DATA:
+                check_audio_latency()
+                prev_timestamp[0] = current_packet.content['Timestamp']
                 audio_data = np.concatenate([audio_data, current_packet.content["DataAudio"]], axis=0)
             elif current_packet.message_type == MessageType.TRACKING_DATA:
                 tracker_data[0] = np.concatenate([tracker_data[0], current_packet.content["DataTimeStamps"]], axis=0)
