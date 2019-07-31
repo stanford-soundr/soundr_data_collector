@@ -63,6 +63,7 @@ def mic_handler(in_data, *_):
         samples = (new_timestamp - prev_timestamp[1]) * AUDIO_RATE
         total_expected_samples[1] += samples
         total_samples[1] += len(in_data)
+        total_delay[1] = (total_expected_samples[1] - total_samples[1]) / AUDIO_RATE
     prev_timestamp[1] = new_timestamp
     # in_data *= (10 ** 1.45) * (2 ** 31)
     if mic_data is None:
@@ -74,19 +75,19 @@ def mic_handler(in_data, *_):
 def check_audio_latency():
     global total_expected_samples, total_samples
     if prev_timestamp[0] is not None:
-        samples = (current_packet.content['Timestamp'] - prev_timestamp[0]) * TRACKING_RATE
+        samples = (current_packet.content['Timestamp'] - prev_timestamp[0]) * AUDIO_RATE
         total_expected_samples[0] += samples
         total_samples[0] += len(current_packet.content['DataAudio'])
-        print(samples - len(current_packet.content['DataAudio']))
+        total_delay[0] = (total_expected_samples[0] - total_samples[0]) / AUDIO_RATE
 
 
 def check_tracking_latency():
     global total_expected_samples, total_samples
     if prev_timestamp[2] is not None:
-        samples = (current_packet.content['Timestamp'] - prev_timestamp[2]) * AUDIO_RATE
+        samples = (current_packet.content['Timestamp'] - prev_timestamp[2]) * TRACKING_RATE
         total_expected_samples[2] += samples
         total_samples[2] += len(current_packet.content['DataPositions'])
-        print(samples - len(current_packet.content['DataPositions']))
+        total_delay[2] = (total_expected_samples[2] - total_samples[2]) / TRACKING_RATE
 
 
 if len(sys.argv) != 3:
@@ -112,10 +113,14 @@ current_state = CollectorState.START
 mic_stream = None
 
 devices = sd.query_devices()
-mic_id = 0
+mic_id = -1
 for device in range(len(devices)):
     if devices[device]['name'].startswith('miniDSP VocalFusion Spk (UAC2.0'):
         mic_id = device
+
+if mic_id is -1:
+    print("Could not find correct mic")
+    sys.exit(-1)
 
 data_directory = './data'
 start = datetime.datetime.now()
@@ -126,25 +131,30 @@ experiment_directory = os.path.join(data_directory, experiment_subdirectory)
 if not os.path.exists(experiment_directory):
     os.makedirs(experiment_directory)
 
-AUDIO_RATE = 48000
-TRACKING_RATE = 72
+AUDIO_RATE = 48000.0
+TRACKING_RATE = 72.0
 VR_AUDIO_FILE_NAME = "vr_audio_data.npy"
 MICROPHONE_FILE_NAME = "mic_data.npy"
 VR_TRACKING_FILE_NAME = "vr_tracking_data.npy"
 
 mic_stream = sd.InputStream(samplerate=48000, channels=devices[mic_id]['max_input_channels'], device=mic_id,
                             callback=mic_handler)
+mic_stream.start()
 
 prev_timestamp = [None, None, None]
 total_samples = [0, 0, 0]
 total_expected_samples = [0, 0, 0]
+total_delay = [0.0, 0.0, 0.0]
+
+while first_microphone_frame:
+    pass
 
 while True:
     print(current_state)
+    print(total_delay)
     if current_state == CollectorState.START:
         s.send(parameter_message(user_id, trial_id).message_str())
         current_state = CollectorState.START_ACK
-        mic_stream.start()
     elif current_state == CollectorState.STOP:
         s.send(stop_message().message_str())
         current_state = CollectorState.STOP_ACK
