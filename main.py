@@ -2,18 +2,19 @@
 import os
 import socket
 from enum import Enum
+from typing import Optional
 
 import numpy as np
 import signal
 import sounddevice as sd
 import sys
 import datetime
-from message_format import MessageType, DecodedPacket, parameter_message, stop_message
+from message_format import MessageType, DecodedPacket, parameter_message, stop_message, timestamp_now
 
 TERMINATOR = b'}"}'
-audio_data = []
+audio_data: Optional[np.array] = []
 tracker_data = [[], [], [], [], [], [], [], []]
-mic_data = None
+mic_data: Optional[np.array] = None
 listening: bool = True
 
 
@@ -43,9 +44,21 @@ def find_next_packet():
     return DecodedPacket.from_str(current_packet)
 
 
+first_microphone_frame = True
+microphone_start_timestamp: Optional[float] = None
+headset_start_timestamp: Optional[float] = None
+
+
 def mic_handler(in_data, *_):
+    global microphone_start_timestamp
     global mic_data
-    new_timestamp = datetime.datetime.utcnow() - datetime.datetime(1970, 1, 1, 0, 0, 0, 0)
+    global first_microphone_frame
+    if first_microphone_frame:
+        microphone_start_timestamp = timestamp_now() - in_data.shape[0] / AUDIO_RATE
+        if headset_start_timestamp is not None:
+            print(f"Time diff: {headset_start_timestamp - microphone_start_timestamp}")
+    first_microphone_frame = False
+    new_timestamp = timestamp_now()
     if prev_timestamp[1] is not None:
         samples = (new_timestamp - prev_timestamp[1]) * AUDIO_RATE
         total_expected_samples[1] += samples
@@ -144,6 +157,9 @@ while True:
                 print(current_packet)
                 break
             else:
+                headset_start_timestamp = timestamp_now()
+                if microphone_start_timestamp is not None:
+                    print(f"Time diff: {headset_start_timestamp - microphone_start_timestamp}")
                 current_state = CollectorState.COLLECT
         else:
             if current_packet.message_type == MessageType.ERROR:

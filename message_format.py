@@ -45,5 +45,9 @@ def parameter_message(user_id: int, trial_id: int):
 
 def stop_message(timestamp: Union[None, float] = None):
     if timestamp is None:
-        timestamp = datetime.datetime.utcnow() - datetime.datetime(1970, 1, 1, 0, 0, 0, 0)
-    return DecodedPacket(MessageType.STOP, {"Timestamp": timestamp.total_seconds()})
+        timestamp = timestamp_now()
+    return DecodedPacket(MessageType.STOP, {"Timestamp": timestamp})
+
+
+def timestamp_now():
+    return (datetime.datetime.utcnow() - datetime.datetime(1970, 1, 1, 0, 0, 0, 0)).total_seconds()
