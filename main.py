@@ -47,15 +47,24 @@ def find_next_packet():
 first_microphone_frame = True
 microphone_start_timestamp: Optional[float] = None
 headset_start_timestamp: Optional[float] = None
-microphone_headset_start_time_diff: Optional[float] = None
+microphone_start_ack_received_time_diff: Optional[float] = None
+start_ack_received_timestamp: Optional[float] = None
+start_ack_diff: Optional[float] = None
+microphone_stop_timestamp: Optional[float] = None
+headset_audio_start_timestamp: Optional[float] = 0
+headset_audio_stop_timestamp: Optional[float] = 0
+tracking_start_timestamp: Optional[float] = None
+tracking_stop_timestamp: Optional[float] = None
 
 
 def mic_handler(in_data, *_):
     global microphone_start_timestamp
+    global microphone_stop_timestamp
     global mic_data
     global first_microphone_frame
     if first_microphone_frame:
         microphone_start_timestamp = timestamp_now() - in_data.shape[0] / AUDIO_RATE
+    microphone_stop_timestamp = timestamp_now() - in_data.shape[0] / AUDIO_RATE
     first_microphone_frame = False
     new_timestamp = timestamp_now()
     if prev_timestamp[1] is not None:
@@ -135,6 +144,7 @@ TRACKING_RATE = 72.0
 VR_AUDIO_FILE_NAME = "vr_audio_data.npy"
 MICROPHONE_FILE_NAME = "mic_data.npy"
 VR_TRACKING_FILE_NAME = "vr_tracking_data.npy"
+OFFSET_FILE_NAME = "offset.npy"
 
 mic_stream = sd.InputStream(samplerate=48000, channels=devices[mic_id]['max_input_channels'], device=mic_id,
                             callback=mic_handler)
@@ -166,33 +176,54 @@ while True:
                 print(current_packet)
                 break
             else:
-                headset_start_timestamp = timestamp_now()
-                microphone_headset_start_time_diff = headset_start_timestamp - microphone_start_timestamp
-                assert(microphone_headset_start_time_diff > 0)
-                print(f"Time diff: {microphone_headset_start_time_diff}")
+                headset_start_timestamp = current_packet.content['Timestamp']
+                start_ack_received_timestamp = timestamp_now()
+                microphone_start_ack_received_time_diff = start_ack_received_timestamp - microphone_start_timestamp
+                start_ack_diff = start_ack_received_timestamp - headset_start_timestamp
+                print(f"Start time diff: {start_ack_diff}")
                 current_state = CollectorState.COLLECT
         else:
             if current_packet.message_type == MessageType.ERROR:
                 print(current_packet)
             elif current_packet.message_type == MessageType.ACKNOWLEDGE:
                 if current_state == CollectorState.STOP_ACK:
+                    headset_stop_timestamp = current_packet.content['Timestamp']
+                    stop_ack_received_timestamp = timestamp_now()
+                    stop_ack_diff = stop_ack_received_timestamp - headset_stop_timestamp
+                    expected_audio_samples = (headset_audio_stop_timestamp - headset_audio_start_timestamp) * AUDIO_RATE
+                    expected_mic_samples = (microphone_stop_timestamp - microphone_start_timestamp) * AUDIO_RATE
+                    expected_tracking_samples = (tracking_stop_timestamp - tracking_start_timestamp) * TRACKING_RATE
+                    tracker_data = np.array(tracker_data).T
+                    offset = [expected_audio_samples - len(audio_data), expected_mic_samples - len(mic_data),
+                              expected_tracking_samples - len(tracker_data)]
+                    print(f"Stop time diff: {stop_ack_diff}")
                     s.close()
                     mic_stream.close()
                     mic_data = np.concatenate(mic_data, axis=0)
-                    mic_data = mic_data[int(microphone_headset_start_time_diff * AUDIO_RATE):]
-                    audio_data = np.concatenate(audio_data, axis=0)
+                    mic_data = mic_data[int(microphone_start_ack_received_time_diff * AUDIO_RATE):]
+                    # audio_data = np.concatenate(audio_data, axis=0)
+                    np.save(os.path.join(experiment_directory, OFFSET_FILE_NAME), offset)
                     np.save(os.path.join(experiment_directory, VR_AUDIO_FILE_NAME), audio_data)
                     np.save(os.path.join(experiment_directory, MICROPHONE_FILE_NAME), mic_data)
-                    np.save(os.path.join(experiment_directory, VR_TRACKING_FILE_NAME), np.array(tracker_data).T)
+                    np.save(os.path.join(experiment_directory, VR_TRACKING_FILE_NAME), tracker_data)
                     print("Data collection ended!")
+                    assert(abs(stop_ack_diff - start_ack_diff) < 0.5)
                     sys.exit(0)
                 else:
                     print(f"Warning: Unexpected ACK received! ({current_state})")
             elif current_packet.message_type == MessageType.AUDIO_DATA:
+                if headset_audio_start_timestamp == 0:
+                    headset_audio_start_timestamp = current_packet.content['Timestamp'] - \
+                                                    len(current_packet.content['DataAudio']) / AUDIO_RATE
+                headset_audio_stop_timestamp = current_packet.content['Timestamp']
                 check_audio_latency()
                 prev_timestamp[0] = current_packet.content['Timestamp']
                 audio_data.append(current_packet.content["DataAudio"])
             elif current_packet.message_type == MessageType.TRACKING_DATA:
+                if tracking_start_timestamp is None:
+                    tracking_start_timestamp = current_packet.content['Timestamp'] - \
+                                                    len(current_packet.content['DataTimeStamps']) / TRACKING_RATE
+                tracking_stop_timestamp = current_packet.content['Timestamp']
                 check_tracking_latency()
                 prev_timestamp[2] = current_packet.content['Timestamp']
                 tracker_data[0] = np.concatenate([tracker_data[0], current_packet.content["DataTimeStamps"]], axis=0)
