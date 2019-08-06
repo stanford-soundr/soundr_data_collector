@@ -12,9 +12,9 @@ import datetime
 from message_format import MessageType, DecodedPacket, parameter_message, stop_message, timestamp_now
 
 TERMINATOR = b'}"}'
-audio_data: Optional[np.array] = []
+audio_data: list = []
 tracker_data = [[], [], [], [], [], [], [], []]
-mic_data: Optional[np.array] = []
+mic_data: list = []
 listening: bool = True
 
 
@@ -62,6 +62,7 @@ def mic_handler(in_data, *_):
     global microphone_stop_timestamp
     global mic_data
     global first_microphone_frame
+    in_data = in_data.copy()  # in_data will be reused by sounddevice
     if first_microphone_frame:
         microphone_start_timestamp = timestamp_now() - in_data.shape[0] / AUDIO_RATE
     microphone_stop_timestamp = timestamp_now()
@@ -74,10 +75,7 @@ def mic_handler(in_data, *_):
         total_delay[1] = (total_expected_samples[1] - total_samples[1]) / AUDIO_RATE
     prev_timestamp[1] = new_timestamp
     # in_data *= (10 ** 1.45) * (2 ** 31)
-    if mic_data is None:
-        mic_data = in_data
-    else:
-        mic_data.append(in_data)
+    mic_data.append(in_data)
 
 
 def check_audio_latency():
