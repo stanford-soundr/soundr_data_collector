@@ -64,7 +64,7 @@ def mic_handler(in_data, *_):
     global first_microphone_frame
     if first_microphone_frame:
         microphone_start_timestamp = timestamp_now() - in_data.shape[0] / AUDIO_RATE
-    microphone_stop_timestamp = timestamp_now() - in_data.shape[0] / AUDIO_RATE
+    microphone_stop_timestamp = timestamp_now()
     first_microphone_frame = False
     new_timestamp = timestamp_now()
     if prev_timestamp[1] is not None:
@@ -187,20 +187,22 @@ while True:
                 print(current_packet)
             elif current_packet.message_type == MessageType.ACKNOWLEDGE:
                 if current_state == CollectorState.STOP_ACK:
+                    s.close()
+                    mic_stream.close()
+                    list_mic_data = mic_data
+                    mic_data = np.concatenate(mic_data, axis=0)
+                    old_mic_data = mic_data
+                    mic_data = mic_data[int(microphone_start_ack_received_time_diff * AUDIO_RATE):]
                     headset_stop_timestamp = current_packet.content['Timestamp']
                     stop_ack_received_timestamp = timestamp_now()
                     stop_ack_diff = stop_ack_received_timestamp - headset_stop_timestamp
                     expected_audio_samples = (headset_audio_stop_timestamp - headset_audio_start_timestamp) * AUDIO_RATE
-                    expected_mic_samples = (microphone_stop_timestamp - microphone_start_timestamp) * AUDIO_RATE
+                    expected_mic_samples = (microphone_stop_timestamp - start_ack_received_timestamp) * AUDIO_RATE
                     expected_tracking_samples = (tracking_stop_timestamp - tracking_start_timestamp) * TRACKING_RATE
                     tracker_data = np.array(tracker_data).T
                     offset = [expected_audio_samples - len(audio_data), expected_mic_samples - len(mic_data),
                               expected_tracking_samples - len(tracker_data)]
                     print(f"Stop time diff: {stop_ack_diff}")
-                    s.close()
-                    mic_stream.close()
-                    mic_data = np.concatenate(mic_data, axis=0)
-                    mic_data = mic_data[int(microphone_start_ack_received_time_diff * AUDIO_RATE):]
                     # audio_data = np.concatenate(audio_data, axis=0)
                     np.save(os.path.join(experiment_directory, OFFSET_FILE_NAME), offset)
                     np.save(os.path.join(experiment_directory, VR_AUDIO_FILE_NAME), audio_data)
