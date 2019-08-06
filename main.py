@@ -12,9 +12,9 @@ import datetime
 from message_format import MessageType, DecodedPacket, parameter_message, stop_message, timestamp_now
 
 TERMINATOR = b'}"}'
-audio_data: Optional[np.array] = []
+audio_data: list = []
 tracker_data = [[], [], [], [], [], [], [], []]
-mic_data: Optional[np.array] = []
+mic_data: list = []
 listening: bool = True
 
 
@@ -62,6 +62,7 @@ def mic_handler(in_data, *_):
     global microphone_stop_timestamp
     global mic_data
     global first_microphone_frame
+    in_data = in_data.copy()  # in_data will be reused by sounddevice
     if first_microphone_frame:
         microphone_start_timestamp = timestamp_now() - in_data.shape[0] / AUDIO_RATE
     microphone_stop_timestamp = timestamp_now() - in_data.shape[0] / AUDIO_RATE
@@ -74,10 +75,7 @@ def mic_handler(in_data, *_):
         total_delay[1] = (total_expected_samples[1] - total_samples[1]) / AUDIO_RATE
     prev_timestamp[1] = new_timestamp
     # in_data *= (10 ** 1.45) * (2 ** 31)
-    if mic_data is None:
-        mic_data = in_data
-    else:
-        mic_data.append(in_data)
+    mic_data.append(in_data)
 
 
 def check_audio_latency():
@@ -199,12 +197,12 @@ while True:
                     print(f"Stop time diff: {stop_ack_diff}")
                     s.close()
                     mic_stream.close()
-                    mic_data = np.concatenate(mic_data, axis=0)
-                    mic_data = mic_data[int(microphone_start_ack_received_time_diff * AUDIO_RATE):]
+                    mic_data_np = np.concatenate(mic_data, axis=0)
+                    mic_data_np = mic_data_np[int(microphone_start_ack_received_time_diff * AUDIO_RATE):]
                     # audio_data = np.concatenate(audio_data, axis=0)
                     np.save(os.path.join(experiment_directory, OFFSET_FILE_NAME), offset)
                     np.save(os.path.join(experiment_directory, VR_AUDIO_FILE_NAME), audio_data)
-                    np.save(os.path.join(experiment_directory, MICROPHONE_FILE_NAME), mic_data)
+                    np.save(os.path.join(experiment_directory, MICROPHONE_FILE_NAME), mic_data_np)
                     np.save(os.path.join(experiment_directory, VR_TRACKING_FILE_NAME), tracker_data)
                     print("Data collection ended!")
                     assert(abs(stop_ack_diff - start_ack_diff) < 0.5)
