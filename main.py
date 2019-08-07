@@ -188,7 +188,7 @@ while True:
                     s.close()
                     mic_stream.close()
                     list_mic_data = mic_data
-                    mic_data = np.concatenate(mic_data.tolist(), axis=0)
+                    mic_data = np.concatenate(mic_data, axis=0)
                     old_mic_data = mic_data
                     mic_data = mic_data[int(microphone_start_ack_received_time_diff * AUDIO_RATE):]
                     headset_stop_timestamp = current_packet.content['Timestamp']
