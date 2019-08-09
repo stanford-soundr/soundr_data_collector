@@ -1,4 +1,5 @@
 # %%
+import base64
 import os
 import socket
 from enum import Enum
@@ -78,21 +79,22 @@ def mic_handler(in_data, *_):
     mic_data.append(in_data)
 
 
-def check_audio_latency():
+def check_audio_latency(timestamp: float, data_length: int):
     global total_expected_samples, total_samples
     if prev_timestamp[0] is not None:
-        samples = (current_packet.content['Timestamp'] - prev_timestamp[0]) * AUDIO_RATE
+        samples = (timestamp - prev_timestamp[0]) * AUDIO_RATE
         total_expected_samples[0] += samples
-        total_samples[0] += len(current_packet.content['DataAudio'])
+        total_samples[0] += data_length
+        print(samples, data_length)
         total_delay[0] = (total_expected_samples[0] - total_samples[0]) / AUDIO_RATE
 
 
-def check_tracking_latency():
+def check_tracking_latency(timestamp: float, data_length: int):
     global total_expected_samples, total_samples
     if prev_timestamp[2] is not None:
-        samples = (current_packet.content['Timestamp'] - prev_timestamp[2]) * TRACKING_RATE
+        samples = (timestamp - prev_timestamp[2]) * TRACKING_RATE
         total_expected_samples[2] += samples
-        total_samples[2] += len(current_packet.content['DataPositions'])
+        total_samples[2] += data_length
         total_delay[2] = (total_expected_samples[2] - total_samples[2]) / TRACKING_RATE
 
 
@@ -187,10 +189,8 @@ while True:
                 if current_state == CollectorState.STOP_ACK:
                     s.close()
                     mic_stream.close()
-                    list_mic_data = mic_data
-                    mic_data = np.concatenate(mic_data, axis=0)
-                    old_mic_data = mic_data
-                    mic_data = mic_data[int(microphone_start_ack_received_time_diff * AUDIO_RATE):]
+                    mic_data_np = np.concatenate(mic_data, axis=0)
+                    mic_data_np = mic_data_np[int(microphone_start_ack_received_time_diff * AUDIO_RATE):]
                     headset_stop_timestamp = current_packet.content['Timestamp']
                     stop_ack_received_timestamp = timestamp_now()
                     stop_ack_diff = stop_ack_received_timestamp - headset_stop_timestamp
@@ -198,13 +198,13 @@ while True:
                     expected_mic_samples = (microphone_stop_timestamp - start_ack_received_timestamp) * AUDIO_RATE
                     expected_tracking_samples = (tracking_stop_timestamp - tracking_start_timestamp) * TRACKING_RATE
                     tracker_data = np.array(tracker_data).T
-                    offset = [expected_audio_samples - len(audio_data), expected_mic_samples - len(mic_data),
+                    offset = [expected_audio_samples - len(audio_data), expected_mic_samples - len(mic_data_np),
                               expected_tracking_samples - len(tracker_data)]
                     print(f"Stop time diff: {stop_ack_diff}")
                     # audio_data = np.concatenate(audio_data, axis=0)
                     np.save(os.path.join(experiment_directory, OFFSET_FILE_NAME), offset)
                     np.save(os.path.join(experiment_directory, VR_AUDIO_FILE_NAME), audio_data)
-                    np.save(os.path.join(experiment_directory, MICROPHONE_FILE_NAME), mic_data)
+                    np.save(os.path.join(experiment_directory, MICROPHONE_FILE_NAME), mic_data_np)
                     np.save(os.path.join(experiment_directory, VR_TRACKING_FILE_NAME), tracker_data)
                     print("Data collection ended!")
                     assert(abs(stop_ack_diff - start_ack_diff) < 0.5)
@@ -212,26 +212,31 @@ while True:
                 else:
                     print(f"Warning: Unexpected ACK received! ({current_state})")
             elif current_packet.message_type == MessageType.AUDIO_DATA:
+                new_audio_string = current_packet.content['DataAudioString']
+                packet_timestamp = current_packet.content['Timestamp']
+                new_audio_data = np.frombuffer(base64.b64decode(new_audio_string), dtype=float)
                 if headset_audio_start_timestamp == 0:
-                    headset_audio_start_timestamp = current_packet.content['Timestamp'] - \
-                                                    len(current_packet.content['DataAudio']) / AUDIO_RATE
-                headset_audio_stop_timestamp = current_packet.content['Timestamp']
-                check_audio_latency()
-                prev_timestamp[0] = current_packet.content['Timestamp']
-                audio_data.append(current_packet.content["DataAudio"])
+                    headset_audio_start_timestamp = packet_timestamp - len(new_audio_data) / AUDIO_RATE
+                headset_audio_stop_timestamp = packet_timestamp
+                check_audio_latency(packet_timestamp, len(new_audio_data))
+                prev_timestamp[0] = packet_timestamp
+                audio_data.append(new_audio_data)
             elif current_packet.message_type == MessageType.TRACKING_DATA:
+                packet_timestamp = current_packet.content['Timestamp']
+                data_timestamps = current_packet.content['DataTimeStamps']
+                data_positions = current_packet.content['DataPositions']
+                data_quaternions = current_packet.content['DataQuaternions']
                 if tracking_start_timestamp is None:
-                    tracking_start_timestamp = current_packet.content['Timestamp'] - \
-                                                    len(current_packet.content['DataTimeStamps']) / TRACKING_RATE
-                tracking_stop_timestamp = current_packet.content['Timestamp']
-                check_tracking_latency()
-                prev_timestamp[2] = current_packet.content['Timestamp']
-                tracker_data[0] = np.concatenate([tracker_data[0], current_packet.content["DataTimeStamps"]], axis=0)
-                for sample in current_packet.content['DataPositions']:
+                    tracking_start_timestamp = packet_timestamp - len(data_timestamps) / TRACKING_RATE
+                tracking_stop_timestamp = packet_timestamp
+                check_tracking_latency(packet_timestamp, len(data_timestamps))
+                prev_timestamp[2] = packet_timestamp
+                tracker_data[0] = np.concatenate([tracker_data[0], data_timestamps], axis=0)
+                for sample in data_positions:
                     tracker_data[1].append(sample['x'])
                     tracker_data[2].append(sample['y'])
                     tracker_data[3].append(sample['z'])
-                for sample in current_packet.content['DataQuaternions']:
+                for sample in data_quaternions:
                     tracker_data[4].append(sample['x'])
                     tracker_data[5].append(sample['y'])
                     tracker_data[6].append(sample['z'])
