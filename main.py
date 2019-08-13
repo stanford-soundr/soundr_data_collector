@@ -123,7 +123,7 @@ mic_stream = None
 devices = sd.query_devices()
 mic_id = -1
 for device in range(len(devices)):
-    if devices[device]['name'].startswith('miniDSP VocalFusion Spk (UAC2.0'):
+    if devices[device]['name'].startswith('nanoSHARC micArray16 UAC2.0'):
         mic_id = device
 
 if mic_id is -1:
@@ -201,7 +201,7 @@ while True:
                     offset = [expected_audio_samples - len(audio_data), expected_mic_samples - len(mic_data_np),
                               expected_tracking_samples - len(tracker_data)]
                     print(f"Stop time diff: {stop_ack_diff}")
-                    # audio_data = np.concatenate(audio_data, axis=0)
+                    audio_data = np.concatenate(audio_data, axis=0)
                     np.save(os.path.join(experiment_directory, OFFSET_FILE_NAME), offset)
                     np.save(os.path.join(experiment_directory, VR_AUDIO_FILE_NAME), audio_data)
                     np.save(os.path.join(experiment_directory, MICROPHONE_FILE_NAME), mic_data_np)
