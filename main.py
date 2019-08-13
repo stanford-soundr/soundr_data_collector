@@ -214,7 +214,7 @@ while True:
             elif current_packet.message_type == MessageType.AUDIO_DATA:
                 new_audio_string = current_packet.content['DataAudioString']
                 packet_timestamp = current_packet.content['Timestamp']
-                new_audio_data = np.frombuffer(base64.b64decode(new_audio_string), dtype=float)
+                new_audio_data = np.frombuffer(base64.b64decode(new_audio_string), dtype=np.float32)
                 if headset_audio_start_timestamp == 0:
                     headset_audio_start_timestamp = packet_timestamp - len(new_audio_data) / AUDIO_RATE
                 headset_audio_stop_timestamp = packet_timestamp
