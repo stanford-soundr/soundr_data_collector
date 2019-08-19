@@ -198,10 +198,10 @@ while True:
                     expected_mic_samples = (microphone_stop_timestamp - start_ack_received_timestamp) * AUDIO_RATE
                     expected_tracking_samples = (tracking_stop_timestamp - tracking_start_timestamp) * TRACKING_RATE
                     tracker_data = np.array(tracker_data).T
+                    audio_data = np.concatenate(audio_data, axis=0)
                     offset = [expected_audio_samples - len(audio_data), expected_mic_samples - len(mic_data_np),
                               expected_tracking_samples - len(tracker_data)]
                     print(f"Stop time diff: {stop_ack_diff}")
-                    audio_data = np.concatenate(audio_data, axis=0)
                     np.save(os.path.join(experiment_directory, OFFSET_FILE_NAME), offset)
                     np.save(os.path.join(experiment_directory, VR_AUDIO_FILE_NAME), audio_data)
                     np.save(os.path.join(experiment_directory, MICROPHONE_FILE_NAME), mic_data_np)
