@@ -98,15 +98,12 @@ def check_tracking_latency(timestamp: float, data_length: int):
         total_delay[2] = (total_expected_samples[2] - total_samples[2]) / TRACKING_RATE
 
 
-if len(sys.argv) != 3:
+if len(sys.argv) != 3 and len(sys.argv) != 4:
     print("Usage: [data_collector.py] user_id trial_id")
     sys.exit(0)
 
 user_id = int(sys.argv[1])
 trial_id = int(sys.argv[2])
-
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.connect(("192.168.144.107", 38823))
 
 
 class CollectorState(Enum):
@@ -157,6 +154,18 @@ total_delay = [0.0, 0.0, 0.0]
 
 while first_microphone_frame:
     pass
+
+if len(sys.argv) == 4:
+    print("Collecting ambient data")
+    while current_state == CollectorState.START:
+        continue
+    mic_stream.close()
+    mic_data_np = np.concatenate(mic_data, axis=0)
+    np.save(os.path.join(experiment_directory, "ambient_mic_data.npy"), mic_data_np)
+    sys.exit(0)
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.connect(("192.168.144.107", 38823))
 
 while True:
     print(current_state)
